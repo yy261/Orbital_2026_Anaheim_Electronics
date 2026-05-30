@@ -1,18 +1,23 @@
 import type { GateType } from '../types';
 
-type SimNode = {
+type InputNode = {
   id: string;
-  type: 'gate' | 'input';
-  data: {
-    gateType?: GateType;
-    value?: boolean;
-  };
+  type: 'INPUT';
+  value: boolean;
 };
 
+type GateNode = {
+  id: string;
+  type: 'GATE';
+  gateType: GateType;
+};
+
+type SimNode = InputNode | GateNode;
+
 type SimEdge = {
-  source: string;        // id of the node the wire comes from
-  target: string;        // id of the node the wire goes to
-  targetHandle?: string | null;  // which input pin of target
+  source: string;
+  target: string;
+  targetHandle: string | null;
 };
 
 export type LogicSimRequest = {
@@ -20,19 +25,26 @@ export type LogicSimRequest = {
   edges: SimEdge[];
 };
 
-// ok: true = success with values;
-// ok: false = failure with an error message.
+export type TruthTable = {
+  inputIds: string[];
+  inputLabels: string[];
+  outputIds: string[];
+  outputLabels: string[];
+  rows: Array<{
+    inputs: boolean[];
+    outputs: boolean[];
+  }>;
+};
+
 export type LogicSimResponse =
-  | { ok: true; values: Record<string, boolean> }
+  | { ok: true; values: Record<string, boolean>; truthTable: TruthTable }
   | { ok: false; error: string };
 
-// How many input pins each gate has.
 const PIN_COUNT: Record<GateType, number> = {
   AND: 2, OR: 2, NAND: 2, NOR: 2, XOR: 2,
   NOT: 1,
 };
 
-// Pure given a gate type and its input values, return the output.
 function evaluateGate(type: GateType, inputs: boolean[]): boolean {
   switch (type) {
     case 'AND':  return inputs[0] && inputs[1];
@@ -44,24 +56,13 @@ function evaluateGate(type: GateType, inputs: boolean[]): boolean {
   }
 }
 
-// Algorithm:
-//   1. Build adjacency maps (incoming edges per node, outgoing edges per node).
-//   2. Topological sort using Kahn's algorithm, repeatedly pull nodes with
-//      no remaining incoming edges into the sorted list, decrementing the
-//      in-degree of their successors.
-//   3. If we can't sort all nodes, the graph has a cycle, bail with an error.
-//   4. Walk the sorted list. For each input node, copy its user-set value
-//      into the values map. For each gate node, look up its inputs from
-//      the values map (using the targetHandle to know which pin), default
-//      missing inputs to LOW, then compute the output.
-export function simulateLogic(req: LogicSimRequest): LogicSimResponse {
-  const { nodes, edges } = req;
-
-  // Index: node id -> the node itself
+function runOnce(
+  nodes: SimNode[],
+  edges: SimEdge[]
+): { ok: true; values: Record<string, boolean> } | { ok: false; error: string } {
   const nodeById = new Map<string, SimNode>();
   for (const node of nodes) nodeById.set(node.id, node);
 
-  // Build incoming and outgoing edge lists per node
   const incoming = new Map<string, SimEdge[]>();
   const outgoing = new Map<string, SimEdge[]>();
   for (const edge of edges) {
@@ -71,19 +72,16 @@ export function simulateLogic(req: LogicSimRequest): LogicSimResponse {
     outgoing.get(edge.source)!.push(edge);
   }
 
-  // Kahn's algorithm
   const inDegree = new Map<string, number>();
   for (const node of nodes) {
     inDegree.set(node.id, incoming.get(node.id)?.length ?? 0);
   }
 
-  // Seed the queue with all nodes that have no incoming edges
   const queue: string[] = [];
   for (const [id, deg] of inDegree) {
     if (deg === 0) queue.push(id);
   }
 
-  // Pull from queue, append to sorted, decrement successors' in-degrees
   const sorted: string[] = [];
   while (queue.length > 0) {
     const id = queue.shift()!;
@@ -95,31 +93,26 @@ export function simulateLogic(req: LogicSimRequest): LogicSimResponse {
     }
   }
 
-  // If we didn't visit every node, at least one is stuck in a cycle
   if (sorted.length < nodes.length) {
     return { ok: false, error: 'Circuit contains a cycle — feedback loops are not supported.' };
   }
 
-  // Evaluate in topological order. By the time we get to any gate, all of
-  // its inputs have already been computed and stored in `values`.
   const values: Record<string, boolean> = {};
 
   for (const id of sorted) {
     const node = nodeById.get(id)!;
 
-    if (node.type === 'input') {
-      values[id] = node.data.value ?? false;
+    if (node.type === 'INPUT') {
+      values[id] = node.value;
       continue;
     }
 
-    if (node.type === 'gate') {
-      const gateType = node.data.gateType;
-      if (!gateType) {
+    if (node.type === 'GATE') {
+      if (!node.gateType) {
         return { ok: false, error: `Gate node ${id} is missing its gateType.` };
       }
 
-      const pinCount = PIN_COUNT[gateType];
-      // Floating (unconnected) inputs default to LOW
+      const pinCount = PIN_COUNT[node.gateType];
       const inputs: boolean[] = new Array(pinCount).fill(false);
 
       for (const edge of incoming.get(id) ?? []) {
@@ -131,10 +124,75 @@ export function simulateLogic(req: LogicSimRequest): LogicSimResponse {
         }
       }
 
-      values[id] = evaluateGate(gateType, inputs);
+      values[id] = evaluateGate(node.gateType, inputs);
       continue;
     }
   }
 
   return { ok: true, values };
+}
+
+function buildTruthTable(nodes: SimNode[], edges: SimEdge[]): TruthTable {
+  const inputNodes = nodes.filter((n): n is InputNode => n.type === 'INPUT');
+  const gateNodes = nodes.filter((n): n is GateNode => n.type === 'GATE');
+
+  const nodesWithOutgoing = new Set(edges.map(e => e.source));
+  let outputNodes = gateNodes.filter(n => !nodesWithOutgoing.has(n.id));
+  if (outputNodes.length === 0) {
+    outputNodes = gateNodes;
+  }
+
+  const inputLabels = inputNodes.map((_, i) =>
+    i < 26 ? String.fromCharCode(65 + i) : `IN${i + 1}`
+  );
+  const outputLabels = outputNodes.map((_, i) => `Y${i + 1}`);
+
+  const n = inputNodes.length;
+  const rows: TruthTable['rows'] = [];
+
+  for (let mask = 0; mask < Math.pow(2, n); mask++) {
+    const inputCombo: boolean[] = [];
+    for (let i = 0; i < n; i++) {
+      inputCombo.push(Boolean((mask >> (n - 1 - i)) & 1));
+    }
+
+    const modifiedNodes: SimNode[] = nodes.map(node => {
+      if (node.type === 'INPUT') {
+        const idx = inputNodes.findIndex(inp => inp.id === node.id);
+        return { ...node, value: inputCombo[idx] };
+      }
+      return node;
+    });
+
+    const result = runOnce(modifiedNodes, edges);
+    if (result.ok === false) continue;
+
+    const outputs = outputNodes.map(n => result.values[n.id] ?? false);
+    rows.push({ inputs: inputCombo, outputs });
+  }
+
+  return {
+    inputIds: inputNodes.map(n => n.id),
+    inputLabels,
+    outputIds: outputNodes.map(n => n.id),
+    outputLabels,
+    rows,
+  };
+}
+
+export function simulateLogic(req: LogicSimRequest): LogicSimResponse {
+  const { nodes, edges } = req;
+
+  const result = runOnce(nodes, edges);
+  if (result.ok === false) {
+    return result;
+  }
+
+  const truthTable = buildTruthTable(nodes, edges);
+
+  return {
+    ok: true,
+    values: result.values,
+    truthTable,
+  };
 }
