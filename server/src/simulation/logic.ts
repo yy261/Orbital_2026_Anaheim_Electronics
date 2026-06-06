@@ -7,7 +7,7 @@ type InputNode = {
 };
 
 type GateNode = {
-  id: string;
+  id: string;    
   type: 'GATE';
   gateType: GateType;
 };
@@ -15,9 +15,9 @@ type GateNode = {
 type SimNode = InputNode | GateNode;
 
 type SimEdge = {
-  source: string;
-  target: string;
-  targetHandle: string | null;
+  source: string;  //id of node the wire is from
+  target: string;  //id of the node where wire goes
+  targetHandle: string | null; //input pin of target
 };
 
 export type LogicSimRequest = {
@@ -36,6 +36,9 @@ export type TruthTable = {
   }>;
 };
 
+
+// discriminated union for the response, ok: true = success with values
+// ok: false = failure with an error message 
 export type LogicSimResponse =
   | { ok: true; values: Record<string, boolean>; truthTable: TruthTable }
   | { ok: false; error: string };
@@ -45,6 +48,8 @@ const PIN_COUNT: Record<GateType, number> = {
   NOT: 1,
 };
 
+
+//output of gates
 function evaluateGate(type: GateType, inputs: boolean[]): boolean {
   switch (type) {
     case 'AND':  return inputs[0] && inputs[1];
@@ -56,13 +61,12 @@ function evaluateGate(type: GateType, inputs: boolean[]): boolean {
   }
 }
 
-function runOnce(
-  nodes: SimNode[],
-  edges: SimEdge[]
-): { ok: true; values: Record<string, boolean> } | { ok: false; error: string } {
+//Simulation logic algorithm for canvas
+function runOnce( nodes: SimNode[], edges: SimEdge[]): 
+{ok: true; values: Record<string, boolean> } | { ok: false; error: string } {
   const nodeById = new Map<string, SimNode>();
   for (const node of nodes) nodeById.set(node.id, node);
-
+  //building AL graph
   const incoming = new Map<string, SimEdge[]>();
   const outgoing = new Map<string, SimEdge[]>();
   for (const edge of edges) {
@@ -71,7 +75,7 @@ function runOnce(
     incoming.get(edge.target)!.push(edge);
     outgoing.get(edge.source)!.push(edge);
   }
-
+  //Kahn's algo
   const inDegree = new Map<string, number>();
   for (const node of nodes) {
     inDegree.set(node.id, incoming.get(node.id)?.length ?? 0);
@@ -93,6 +97,7 @@ function runOnce(
     }
   }
 
+  //clear nodes in topo order
   if (sorted.length < nodes.length) {
     return { ok: false, error: 'Circuit contains a cycle — feedback loops are not supported.' };
   }
@@ -133,6 +138,7 @@ function runOnce(
 }
 
 function buildTruthTable(nodes: SimNode[], edges: SimEdge[]): TruthTable {
+  // separate nodes into inputs and gates for processing
   const inputNodes = nodes.filter((n): n is InputNode => n.type === 'INPUT');
   const gateNodes = nodes.filter((n): n is GateNode => n.type === 'GATE');
 
@@ -150,6 +156,7 @@ function buildTruthTable(nodes: SimNode[], edges: SimEdge[]): TruthTable {
   const n = inputNodes.length;
   const rows: TruthTable['rows'] = [];
 
+  //enumerate all 2^n input combinations using a bitmask
   for (let mask = 0; mask < Math.pow(2, n); mask++) {
     const inputCombo: boolean[] = [];
     for (let i = 0; i < n; i++) {
@@ -180,6 +187,8 @@ function buildTruthTable(nodes: SimNode[], edges: SimEdge[]): TruthTable {
   };
 }
 
+
+//full simulation + truth table
 export function simulateLogic(req: LogicSimRequest): LogicSimResponse {
   const { nodes, edges } = req;
 

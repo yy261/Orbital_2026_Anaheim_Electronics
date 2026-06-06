@@ -8,7 +8,34 @@ const app = express();
 
 app.use(
   cors({
-    origin: process.env.FRONTEND_ORIGIN || 'http://localhost:3000',
+    origin: (origin, callback) => {
+      if (!origin) {
+        callback(null, true);
+        return;
+      }
+
+      const productionOrigin = process.env.FRONTEND_ORIGIN || 'http://localhost:3000';
+
+      let isAllowed = false;
+
+      if (origin === productionOrigin) {
+        isAllowed = true;
+      }
+
+      if (origin === 'http://localhost:3000') {
+        isAllowed = true;
+      }
+
+      if (origin.endsWith('.vercel.app')) {
+        isAllowed = true;
+      }
+
+      if (isAllowed) {
+        callback(null, true);
+      } else {
+        callback(new Error('Not allowed by CORS'));
+      }
+    },
   })
 );
 
