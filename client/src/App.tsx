@@ -4,11 +4,10 @@ import Build from './pages/Build';
 import Learn from './pages/Learn';
 import MyCircuits from './pages/MyCircuits';
 import Account from './pages/Account';
+import Login from './pages/Login';
+import Signup from './pages/Signup';
 
 // Top-level layout. NavBar stays mounted, route outlets swap below it.
-// Note: Build needs the full canvas viewport, so its own page handles
-// horizontal layout (sidebar + canvas + truth-table panel) — App.tsx only
-// gives it the vertical real estate.
 export default function App() {
     return (
         <div className="flex h-screen flex-col bg-gray-50 text-gray-900">
@@ -20,6 +19,8 @@ export default function App() {
                     <Route path="/build" element={<Build />} />
                     <Route path="/circuits" element={<MyCircuits />} />
                     <Route path="/account" element={<Account />} />
+                    <Route path="/login" element={<Login />} />
+                    <Route path="/signup" element={<Signup />} />
                 </Routes>
             </main>
         </div>
