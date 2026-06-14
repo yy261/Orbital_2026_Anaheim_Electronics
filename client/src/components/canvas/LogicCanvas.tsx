@@ -2,6 +2,7 @@ import { useCallback, useMemo, useRef } from 'react';
 import type { DragEvent } from 'react';
 import ReactFlow, {
     Background,
+    BackgroundVariant,
     Controls,
     MiniMap,
     ReactFlowProvider,
@@ -17,25 +18,19 @@ import GateNode from './nodes/GateNode';
 import InputNode from './nodes/InputNode';
 import OutputNode from './nodes/OutputNode';
 
-// React Flow needs the node-type registry as a stable reference, otherwise
-// it warns every render. Defined outside the component so the object
-// identity doesn't change between renders.
 const nodeTypes = {
     GATE: GateNode,
     INPUT: InputNode,
     OUTPUT: OutputNode,
 };
 
-// Right-angled (orthogonal) wires. `smoothstep` rounds the corners slightly
-// so they read as "circuit-board-ish" rather than blocky. Note: this does
-// NOT pathfind around other nodes — if a wire visually overlaps a node,
-// drag that node aside and the wire reroutes.
+// Right-angled wires. smoothstep rounds the corners slightly for the
+// circuit-board look. Does not pathfind around nodes — drag a node aside if a
+// wire overlaps it.
 const defaultEdgeOptions: DefaultEdgeOptions = {
     type: 'smoothstep',
 };
 
-// Inner component runs INSIDE the ReactFlowProvider so it can use
-// `useReactFlow().screenToFlowPosition` for converting drop coordinates.
 function Inner() {
     const wrapperRef = useRef<HTMLDivElement | null>(null);
     const rfInstance = useRef<ReactFlowInstance | null>(null);
@@ -51,8 +46,6 @@ function Inner() {
 
     const { screenToFlowPosition } = useReactFlow();
 
-    // onDragOver must call preventDefault() otherwise the browser refuses
-    // to fire onDrop. This is a known HTML5 drag-and-drop quirk.
     const onDragOver = useCallback((event: DragEvent) => {
         event.preventDefault();
         event.dataTransfer.dropEffect = 'move';
@@ -66,8 +59,6 @@ function Inner() {
                 return;
             }
 
-            // Convert mouse coordinates into flow (canvas) coordinates so
-            // the new node lands where the cursor was, even after pan/zoom.
             const position = screenToFlowPosition({
                 x: event.clientX,
                 y: event.clientY,
@@ -109,16 +100,34 @@ function Inner() {
                 defaultEdgeOptions={defaultEdgeOptions}
                 fitView
                 deleteKeyCode={['Backspace', 'Delete']}
+                proOptions={{ hideAttribution: true }}
             >
-                <Background />
-                <Controls />
-                <MiniMap pannable zoomable />
+                <Background
+                    variant={BackgroundVariant.Dots}
+                    gap={24}
+                    size={1}
+                    color="var(--line)"
+                />
+                <Controls
+                    className="!border !border-line !bg-surface"
+                    style={{ borderRadius: 8, overflow: 'hidden' }}
+                />
+                <MiniMap
+                    pannable
+                    zoomable
+                    maskColor="var(--grid-dot)"
+                    style={{
+                        backgroundColor: 'var(--surface)',
+                        border: '1px solid var(--line)',
+                        borderRadius: 8,
+                    }}
+                    nodeColor="var(--muted)"
+                />
             </ReactFlow>
         </div>
     );
 }
 
-// Wraps Inner in the provider so useReactFlow() works.
 export default function LogicCanvas() {
     return (
         <ReactFlowProvider>
