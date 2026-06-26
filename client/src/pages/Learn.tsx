@@ -1,8 +1,5 @@
 import { useEffect, useState } from 'react';
 
-// Placeholder for the structured levels
-// Keeps a small backend health pinger so a new teammate can verify the
-// /api connection is live without opening the Build page.
 export default function Learn() {
     const [backendStatus, setBackendStatus] = useState<'pending' | 'ok' | 'down'>(
         'pending'
@@ -21,24 +18,47 @@ export default function Learn() {
             .catch(() => setBackendStatus('down'));
     }, []);
 
-    return (
-        <div className="space-y-4 p-6">
-            <h1 className="text-2xl font-bold">Learn</h1>
+    let statusDotClass = 'bg-muted';
+    let statusText = 'checking…';
+    let statusTextClass = 'text-muted';
+    if (backendStatus === 'ok') {
+        statusDotClass = 'bg-scope';
+        statusText = 'online';
+        statusTextClass = 'text-scope';
+    }
+    if (backendStatus === 'down') {
+        statusDotClass = 'bg-danger';
+        statusText = 'unreachable';
+        statusTextClass = 'text-danger';
+    }
 
-            <div className="rounded-md border border-gray-200 bg-white p-4 text-sm">
-                <span className="font-medium">Backend health: </span>
-                {backendStatus === 'pending' && (
-                    <span className="text-gray-500">checking...</span>
-                )}
-                {backendStatus === 'ok' && <span className="text-green-600">ok</span>}
+    return (
+        <div className="mx-auto max-w-3xl space-y-6 p-8">
+            <header>
+                <div className="gf-label mb-2">GF-01 // Module Index</div>
+                <h1 className="font-display text-3xl font-bold tracking-tight">Learn</h1>
+                <p className="mt-2 max-w-prose text-sm text-muted">
+                    Structured levels will appear here — guided builds from a single gate
+                    up to a half adder. The level system ships in a later phase.
+                </p>
+            </header>
+
+            <section className="gf-panel hud p-5">
+                <div className="gf-label mb-3">Simulation Backend</div>
+                <div className="flex items-center gap-2 font-mono text-sm">
+                    <span className={`h-2 w-2 rounded-full ${statusDotClass}`} />
+                    <span className={statusTextClass}>{statusText}</span>
+                </div>
                 {backendStatus === 'down' && (
-                    <span className="text-red-600">
-                        unreachable &mdash; make sure{' '}
-                        <code className="bg-gray-100 px-1">npm run dev</code> is running in the{' '}
-                        <code className="bg-gray-100 px-1">/server</code> folder
-                    </span>
+                    <p className="mt-3 text-xs text-muted">
+                        The free-tier server sleeps when idle — the first request can take
+                        up to a minute to wake it. If this persists locally, make sure{' '}
+                        <code className="rounded bg-sunken px-1 font-mono">npm run dev</code>{' '}
+                        is running in the <code className="rounded bg-sunken px-1 font-mono">/server</code>{' '}
+                        folder.
+                    </p>
                 )}
-            </div>
+            </section>
         </div>
     );
 }
