@@ -88,3 +88,51 @@ export async function deleteCircuit(circuitId: string): Promise<void> {
 
     await deleteDoc(doc(db, 'circuits', circuitId));
 }
+
+// Fetches the list of completed level IDs for a user
+export async function getUserProgress(userId: string): Promise<string[]> {
+    if (db === undefined) {
+        throw new Error('Firestore is not initialised. Check your .env file.');
+    }
+
+    const docRef = doc(db, 'progress', userId);
+    const { getDoc } = await import('firebase/firestore');
+    const snapshot = await getDoc(docRef);
+
+    if (snapshot.exists() === false) {
+        return [];
+    }
+
+    const data = snapshot.data();
+    if (Array.isArray(data.completedLevels)) {
+        return data.completedLevels as string[];
+    }
+    return [];
+}
+
+// Marks a level as complete for a user
+export async function markLevelComplete(userId: string, levelId: string): Promise<void> {
+    if (db === undefined) {
+        throw new Error('Firestore is not initialised. Check your .env file.');
+    }
+
+    const { getDoc, setDoc, arrayUnion } = await import('firebase/firestore');
+    const docRef = doc(db, 'progress', userId);
+    const snapshot = await getDoc(docRef);
+
+    if (snapshot.exists() === false) {
+        await setDoc(docRef, {
+            completedLevels: [levelId],
+            lastUpdated: serverTimestamp(),
+        });
+    } else {
+        await setDoc(
+            docRef,
+            {
+                completedLevels: arrayUnion(levelId),
+                lastUpdated: serverTimestamp(),
+            },
+            { merge: true }
+        );
+    }
+}
