@@ -70,6 +70,7 @@ type AppState = {
 
     clear: () => void;
     simulate: () => Promise<void>;
+    loadCircuit: (nodes: Node<AnyNodeData>[], edges: Edge[]) => void;
 };
 
 // Helper: serialises the canvas into the API payload. OUTPUT nodes are
@@ -451,5 +452,25 @@ export const useAppStore = create<AppState>((set, get) => ({
                 truthTable: null,
             });
         }
+    },
+    // Replaces the canvas with a previously saved circuit
+    loadCircuit: (savedNodes, savedEdges) => {
+        let maxId = 0;
+        for (const node of savedNodes) {
+            const match = node.id.match(/_(\d+)$/);
+            if (match !== null) {
+                const num = parseInt(match[1], 10);
+                if (num > maxId) {
+                    maxId = num;
+                }
+            }
+        }
+        set({
+            nodes: savedNodes,
+            edges: savedEdges,
+            nextId: maxId + 1,
+            simulateError: null,
+            truthTable: null,
+        });
     },
 }));

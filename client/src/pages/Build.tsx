@@ -1,21 +1,12 @@
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useAppStore } from '../store';
+import { useAuth } from '../hooks/useAuth';
+import { saveCircuit } from '../firebase/firestore';
 import GatePalette from '../components/canvas/GatePalette';
 import LogicCanvas from '../components/canvas/LogicCanvas';
 import TruthTableView from '../components/canvas/TruthTable';
+import SaveModal from '../components/SaveModal';
 
-// The Build page layout:
-//
-//   +------------------------------------------------------------+
-//   | Toolbar (Simulate / Clear)                                 |
-//   +--------+----------------------------+----------------------+
-//   |        |                            |                      |
-//   | Gate   |   React Flow canvas        |   Truth table        |
-//   | palette|                            |   panel              |
-//   |        |                            |                      |
-//   +--------+----------------------------+----------------------+
-//
-// The error banner (if any) sits between the toolbar and the row.
 export default function Build() {
     const simulate = useAppStore((s) => s.simulate);
     const clear = useAppStore((s) => s.clear);
@@ -24,7 +15,16 @@ export default function Build() {
     const simulating = useAppStore((s) => s.simulating);
     const simulateError = useAppStore((s) => s.simulateError);
     const truthTable = useAppStore((s) => s.truthTable);
+    const nodes = useAppStore((s) => s.nodes);
+    const edges = useAppStore((s) => s.edges);
 
+    const { user } = useAuth();
+
+    const [showSaveModal, setShowSaveModal] = useState<boolean>(false);
+    const [saving, setSaving] = useState<boolean>(false);
+    const [saveMessage, setSaveMessage] = useState<string | null>(null);
+
+    // Keyboard shortcuts for copy/paste
     useEffect(() => {
         function handleKeyDown(event: KeyboardEvent) {
             const target = event.target as HTMLElement;
@@ -57,6 +57,43 @@ export default function Build() {
         };
     }, [copySelection, paste]);
 
+    // Clears the save confirmation message after 3 seconds
+    useEffect(() => {
+        if (saveMessage === null) {
+            return;
+        }
+        const timer = setTimeout(() => setSaveMessage(null), 3000);
+        return () => clearTimeout(timer);
+    }, [saveMessage]);
+
+    function handleSaveClick() {
+        if (user === null) {
+            setSaveMessage('Log in to save circuits.');
+            return;
+        }
+        if (nodes.length === 0) {
+            setSaveMessage('Canvas is empty — nothing to save.');
+            return;
+        }
+        setShowSaveModal(true);
+    }
+
+    async function handleSave(name: string) {
+        if (user === null) {
+            return;
+        }
+        setSaving(true);
+        try {
+            await saveCircuit(user.uid, name, nodes, edges);
+            setSaveMessage(`"${name}" saved.`);
+            setShowSaveModal(false);
+        } catch (err) {
+            console.error('Save failed:', err);
+            setSaveMessage('Save failed — check the console.');
+        }
+        setSaving(false);
+    }
+
     let simulateLabel: string;
     if (simulating === true) {
         simulateLabel = 'Simulating…';
@@ -66,7 +103,7 @@ export default function Build() {
 
     return (
         <div className="flex h-full flex-col">
-            {/* Toolbar / instrument header */}
+            {/* Toolbar */}
             <div className="flex items-center gap-3 border-b border-line bg-surface px-4 py-2.5">
                 <div className="mr-2 leading-tight">
                     <div className="gf-label">GF-02 // Build Console</div>
@@ -82,9 +119,17 @@ export default function Build() {
                 >
                     {simulateLabel}
                 </button>
+                <button type="button" onClick={handleSaveClick} className="btn-line">
+                    Save
+                </button>
                 <button type="button" onClick={() => clear()} className="btn-line">
                     Clear
                 </button>
+
+                {saveMessage !== null && (
+                    <span className="ml-2 font-mono text-xs text-scope">{saveMessage}</span>
+                )}
+
                 <div className="ml-auto font-mono text-[10px] uppercase tracking-[0.14em] text-muted">
                     Drag · click IN to toggle · Ctrl+C/V · Backspace
                 </div>
@@ -107,12 +152,20 @@ export default function Build() {
                     <div className="flex-1 overflow-auto">
                         <TruthTableView table={truthTable} />
                     </div>
-                    {/* React Flow license attribution (we hid the on-canvas badge) */}
                     <div className="border-t border-line px-4 py-2 text-[10px] text-muted">
                         Canvas powered by React Flow
                     </div>
                 </div>
             </div>
+
+            {/* Save modal */}
+            {showSaveModal === true && (
+                <SaveModal
+                    onSave={handleSave}
+                    onClose={() => setShowSaveModal(false)}
+                    saving={saving}
+                />
+            )}
         </div>
     );
 }
