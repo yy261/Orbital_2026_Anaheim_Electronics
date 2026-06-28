@@ -1,13 +1,16 @@
 import type { DragEvent } from 'react';
 import type { GateType } from '../../types/circuit';
+import { useAppStore } from '../../store';
+
 // Left-hand palette. The user drags an entry onto the canvas. LogicCanvas
 // handles the actual drop (via onDragOver/onDrop) and asks the store to
-// create the node. 
+// create the node.
 //
-// The drag payload format is "<kind>" or "GATE:<gateType>":
+// The drag payload format is "<kind>" or "GATE:<gateType>" or "CUSTOM:<id>":
 //   - "INPUT"
 //   - "OUTPUT"
 //   - "GATE:AND" etc.
+//   - "CUSTOM:<componentId>"
 //
 // Visual sizing: each tile is rendered at the same dimensions as the placed
 // node it represents (min-w-[88px] px-5 py-3). This means the browser's
@@ -64,6 +67,8 @@ function OutputTile() {
 }
 
 export default function GatePalette() {
+    const customComponents = useAppStore((s) => s.customComponents);
+
     return (
         <aside className="flex w-48 flex-col gap-3 overflow-y-auto border-r border-line bg-paper p-4">
             <div className="gf-label">Sources</div>
@@ -76,6 +81,25 @@ export default function GatePalette() {
             {GATES.map((g) => {
                 return <GateTile key={g} gateType={g} />;
             })}
+
+            {customComponents.length > 0 && (
+                <>
+                    <div className="gf-label mt-2">Custom</div>
+                    {customComponents.map((comp) => (
+                        <div
+                            key={comp.id}
+                            onDragStart={(e) => onDragStart(e, `CUSTOM:${comp.id}`)}
+                            draggable
+                            className="flex min-w-[88px] cursor-grab flex-col items-center justify-center rounded-md border-2 border-dashed border-line bg-surface px-4 py-3 font-display text-sm font-bold tracking-wide text-ink shadow-lift transition-colors hover:border-accent"
+                        >
+                            <div className="text-xs">{comp.name}</div>
+                            <div className="mt-1 font-mono text-[9px] text-muted">
+                                {comp.inputLabels.length}→{comp.outputLabels.length}
+                            </div>
+                        </div>
+                    ))}
+                </>
+            )}
 
             <div className="mt-auto border-t border-line pt-3 text-[10px] leading-snug text-muted">
                 Drag onto canvas · click IN to toggle · Ctrl+C / Ctrl+V to duplicate · Backspace to delete

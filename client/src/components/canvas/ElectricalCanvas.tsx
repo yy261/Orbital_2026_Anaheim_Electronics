@@ -13,22 +13,21 @@ import ReactFlow, {
 import 'reactflow/dist/style.css';
 
 import { useAppStore } from '../../store';
-import type { GateType } from '../../types/circuit';
-import GateNode from './nodes/GateNode';
-import InputNode from './nodes/InputNode';
-import OutputNode from './nodes/OutputNode';
-import CustomNode from './nodes/CustomNode';
+import type { ElectricalComponentType } from '../../types/circuit';
+import {
+    VoltageSourceNode,
+    ResistorNode,
+    LEDNode,
+    SwitchNode,
+} from './nodes/ElectricalNodes';
 
 const nodeTypes = {
-    GATE: GateNode,
-    INPUT: InputNode,
-    OUTPUT: OutputNode,
-    CUSTOM: CustomNode,
+    VOLTAGE_SOURCE: VoltageSourceNode,
+    RESISTOR: ResistorNode,
+    LED: LEDNode,
+    SWITCH: SwitchNode,
 };
 
-// Right-angled wires. smoothstep rounds the corners slightly for the
-// circuit-board look. Does not pathfind around nodes — drag a node aside if a
-// wire overlaps it.
 const defaultEdgeOptions: DefaultEdgeOptions = {
     type: 'smoothstep',
 };
@@ -37,16 +36,12 @@ function Inner() {
     const wrapperRef = useRef<HTMLDivElement | null>(null);
     const rfInstance = useRef<ReactFlowInstance | null>(null);
 
-    const nodes = useAppStore((s) => s.nodes);
-    const edges = useAppStore((s) => s.edges);
-    const onNodesChange = useAppStore((s) => s.onNodesChange);
-    const onEdgesChange = useAppStore((s) => s.onEdgesChange);
-    const onConnect = useAppStore((s) => s.onConnect);
-    const addGate = useAppStore((s) => s.addGate);
-    const addInput = useAppStore((s) => s.addInput);
-    const addOutput = useAppStore((s) => s.addOutput);
-    const addCustomToCanvas = useAppStore((s) => s.addCustomToCanvas);
-    const customComponents = useAppStore((s) => s.customComponents);
+    const elecNodes = useAppStore((s) => s.elecNodes);
+    const elecEdges = useAppStore((s) => s.elecEdges);
+    const onElecNodesChange = useAppStore((s) => s.onElecNodesChange);
+    const onElecEdgesChange = useAppStore((s) => s.onElecEdgesChange);
+    const onElecConnect = useAppStore((s) => s.onElecConnect);
+    const addElecComponent = useAppStore((s) => s.addElecComponent);
 
     const { screenToFlowPosition } = useReactFlow();
 
@@ -62,38 +57,19 @@ function Inner() {
             if (!payload) {
                 return;
             }
+            if (!payload.startsWith('ELEC:')) {
+                return;
+            }
 
+            const compType = payload.slice('ELEC:'.length) as ElectricalComponentType;
             const position = screenToFlowPosition({
                 x: event.clientX,
                 y: event.clientY,
             });
 
-            if (payload === 'INPUT') {
-                addInput(position);
-                return;
-            }
-
-            if (payload === 'OUTPUT') {
-                addOutput(position);
-                return;
-            }
-
-            if (payload.startsWith('GATE:')) {
-                const gateType = payload.slice('GATE:'.length) as GateType;
-                addGate(gateType, position);
-                return;
-            }
-
-            if (payload.startsWith('CUSTOM:')) {
-                const componentId = payload.slice('CUSTOM:'.length);
-                const def = customComponents.find((c) => c.id === componentId);
-                if (def) {
-                    addCustomToCanvas(def, position);
-                }
-                return;
-            }
+            addElecComponent(compType, position);
         },
-        [addGate, addInput, addOutput, addCustomToCanvas, customComponents, screenToFlowPosition]
+        [addElecComponent, screenToFlowPosition]
     );
 
     const nodeTypesMemo = useMemo(() => nodeTypes, []);
@@ -101,11 +77,11 @@ function Inner() {
     return (
         <div ref={wrapperRef} className="h-full w-full">
             <ReactFlow
-                nodes={nodes}
-                edges={edges}
-                onNodesChange={onNodesChange}
-                onEdgesChange={onEdgesChange}
-                onConnect={onConnect}
+                nodes={elecNodes}
+                edges={elecEdges}
+                onNodesChange={onElecNodesChange}
+                onEdgesChange={onElecEdgesChange}
+                onConnect={onElecConnect}
                 onDrop={onDrop}
                 onDragOver={onDragOver}
                 onInit={(inst) => (rfInstance.current = inst)}
@@ -141,7 +117,7 @@ function Inner() {
     );
 }
 
-export default function LogicCanvas() {
+export default function ElectricalCanvas() {
     return (
         <ReactFlowProvider>
             <Inner />

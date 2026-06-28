@@ -77,6 +77,7 @@ export default function NavBar() {
                 <div className="flex gap-6">
                     <StyledNavLink to="/learn">Learn</StyledNavLink>
                     <StyledNavLink to="/build">Build</StyledNavLink>
+                    <StyledNavLink to="/compare">Compare</StyledNavLink>
                     <StyledNavLink to="/circuits">My Circuits</StyledNavLink>
                     <StyledNavLink to="/account">Account</StyledNavLink>
                 </div>

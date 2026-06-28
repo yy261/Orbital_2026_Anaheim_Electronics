@@ -14,7 +14,7 @@
 //   - copySelection / paste: clipboard, called by the keyboard handler in Build.tsx
 //   - clear: wipes the canvas
 //   - simulate: POSTs to /api/simulate and merges the values back onto nodes,
-//               then resolves OUTPUT node values and styles HIGH edges red.
+//               then resolves OUTPUT node values and styles HIGH edges amber.
 
 import { create } from 'zustand';
 import {
@@ -28,17 +28,23 @@ import {
     type NodeChange,
 } from 'reactflow';
 import type {
+    AnyNodeData,
+    CustomComponentDef,
+    CustomNodeData,
+    ElectricalComponentType,
     GateNodeData,
     GateType,
     InputNodeData,
+    LEDNodeData,
     OutputNodeData,
+    ResistorNodeData,
     SimulatePayloadEdge,
     SimulatePayloadNode,
     SimulateResponse,
+    SwitchNodeData,
     TruthTable,
+    VoltageSourceNodeData,
 } from '../types/circuit';
-
-type AnyNodeData = GateNodeData | InputNodeData | OutputNodeData;
 
 type Clipboard = {
     nodes: Node<AnyNodeData>[];
@@ -46,6 +52,7 @@ type Clipboard = {
 };
 
 type AppState = {
+    // ----- Logic canvas (existing) -----
     nodes: Node<AnyNodeData>[];
     edges: Edge[];
     nextId: number;
@@ -71,15 +78,43 @@ type AppState = {
     clear: () => void;
     simulate: () => Promise<void>;
     loadCircuit: (nodes: Node<AnyNodeData>[], edges: Edge[]) => void;
+
+    // ----- Custom components (Phase 7) -----
+    customComponents: CustomComponentDef[];
+    setCustomComponents: (defs: CustomComponentDef[]) => void;
+    addCustomToCanvas: (def: CustomComponentDef, position: { x: number; y: number }) => void;
+
+    // ----- Electrical canvas (Phase 8) -----
+    elecNodes: Node<AnyNodeData>[];
+    elecEdges: Edge[];
+    elecNextId: number;
+
+    onElecNodesChange: (changes: NodeChange[]) => void;
+    onElecEdgesChange: (changes: EdgeChange[]) => void;
+    onElecConnect: (connection: Connection) => void;
+
+    addElecComponent: (type: ElectricalComponentType, position: { x: number; y: number }) => void;
+    toggleSwitch: (id: string) => void;
+    clearElec: () => void;
+    applyElecResults: (values: Record<string, { voltage: number; current: number; lit?: boolean }>) => void;
 };
 
 // Helper: serialises the canvas into the API payload. OUTPUT nodes are
 // frontend-only so they're skipped here — the backend never sees them.
-function buildPayload(nodes: Node<AnyNodeData>[], edges: Edge[]): {
+// CUSTOM nodes are expanded into their internal graphs inline.
+function buildPayload(
+    nodes: Node<AnyNodeData>[],
+    edges: Edge[],
+    customComponents: CustomComponentDef[]
+): {
     nodes: SimulatePayloadNode[];
     edges: SimulatePayloadEdge[];
 } {
     const payloadNodes: SimulatePayloadNode[] = [];
+    const payloadEdges: SimulatePayloadEdge[] = [];
+
+    const customNodeMap = new Map<string, CustomComponentDef>();
+
     for (const node of nodes) {
         if (node.type === 'INPUT') {
             const data = node.data as InputNodeData;
@@ -95,30 +130,91 @@ function buildPayload(nodes: Node<AnyNodeData>[], edges: Edge[]): {
                 type: 'GATE',
                 gateType: data.gateType,
             });
+        } else if (node.type === 'CUSTOM') {
+            const data = node.data as CustomNodeData;
+            const def = customComponents.find((c) => c.id === data.componentId);
+            if (def) {
+                customNodeMap.set(node.id, def);
+                const prefix = `${node.id}__`;
+                for (const intNode of def.internalNodes) {
+                    if (intNode.type === 'INPUT') {
+                        payloadNodes.push({
+                            id: `${prefix}${intNode.id}`,
+                            type: 'INPUT',
+                            value: intNode.value,
+                        });
+                    } else if (intNode.type === 'GATE') {
+                        payloadNodes.push({
+                            id: `${prefix}${intNode.id}`,
+                            type: 'GATE',
+                            gateType: intNode.gateType,
+                        });
+                    }
+                }
+                for (const intEdge of def.internalEdges) {
+                    payloadEdges.push({
+                        source: `${prefix}${intEdge.source}`,
+                        target: `${prefix}${intEdge.target}`,
+                        targetHandle: intEdge.targetHandle,
+                    });
+                }
+            }
         }
-        // OUTPUT nodes are intentionally skipped to see types/circuit.ts.
+        // OUTPUT nodes are intentionally skipped — see types/circuit.ts.
     }
 
-    // We only send edges that originate from a node the backend knows about.
-    // Edges into OUTPUT nodes still travel — the source is INPUT or GATE.
-    // Edges *from* an OUTPUT would be nonsensical (OUTPUT has no output handle).
-    const payloadEdges: SimulatePayloadEdge[] = edges.map((edge) => {
-        return {
-            source: edge.source,
-            target: edge.target,
-            targetHandle: edge.targetHandle ?? null,
-        };
-    });
+    // Process canvas edges, remapping endpoints that touch CUSTOM nodes
+    // to the corresponding internal input/output nodes.
+    for (const edge of edges) {
+        const targetCustomDef = customNodeMap.get(edge.target);
+        const sourceCustomDef = customNodeMap.get(edge.source);
+
+        let resolvedSource = edge.source;
+        let resolvedTarget = edge.target;
+        let resolvedTargetHandle = edge.targetHandle ?? null;
+
+        if (sourceCustomDef) {
+            const prefix = `${edge.source}__`;
+            const outIndex = parseInt((edge.sourceHandle ?? 'out-0').replace('out-', ''), 10);
+            const outNodeId = sourceCustomDef.outputNodeIds[outIndex];
+            if (outNodeId) {
+                resolvedSource = `${prefix}${outNodeId}`;
+            }
+        }
+
+        if (targetCustomDef) {
+            const prefix = `${edge.target}__`;
+            const inIndex = parseInt((edge.targetHandle ?? 'in-0').replace('in-', ''), 10);
+            const inNodeId = targetCustomDef.inputNodeIds[inIndex];
+            if (inNodeId) {
+                resolvedTarget = `${prefix}${inNodeId}`;
+                resolvedTargetHandle = null;
+            }
+        }
+
+        // Skip edges from OUTPUT nodes (they have no output handle)
+        const sourceNode = nodes.find((n) => n.id === edge.source);
+        if (sourceNode && sourceNode.type === 'OUTPUT') {
+            continue;
+        }
+
+        payloadEdges.push({
+            source: resolvedSource,
+            target: resolvedTarget,
+            targetHandle: resolvedTargetHandle,
+        });
+    }
 
     return { nodes: payloadNodes, edges: payloadEdges };
 }
 
 // Styling for edges that the simulator marks as carrying HIGH. We apply
-// these inline on each edge so React Flow renders them with a thicker red
+// these inline on each edge so React Flow renders them with a thicker amber
 // stroke without us needing a custom edge component.
 const HIGH_EDGE_STYLE = { stroke: '#f09a3e', strokeWidth: 2.5 };
 
 export const useAppStore = create<AppState>((set, get) => ({
+    // ----- Logic canvas -----
     nodes: [],
     edges: [],
     nextId: 1,
@@ -127,6 +223,16 @@ export const useAppStore = create<AppState>((set, get) => ({
     simulateError: null,
     truthTable: null,
     clipboard: null,
+
+    // ----- Custom components -----
+    customComponents: [],
+
+    // ----- Electrical canvas -----
+    elecNodes: [],
+    elecEdges: [],
+    elecNextId: 1,
+
+    // ----- Logic canvas actions (unchanged from Phase 6) -----
 
     onNodesChange: (changes) => {
         set({ nodes: applyNodeChanges(changes, get().nodes) });
@@ -231,7 +337,7 @@ export const useAppStore = create<AppState>((set, get) => ({
         }
         const selectedIds = new Set(selectedNodes.map((n) => n.id));
         // Keep an edge in the clipboard only if BOTH endpoints are also
-        // selected, pasting half a wire would leave dangling references.
+        // selected — pasting half a wire would leave dangling references.
         const selectedEdges = get().edges.filter((e) => {
             if (selectedIds.has(e.source) !== true) {
                 return false;
@@ -328,7 +434,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     },
 
     simulate: async () => {
-        const { nodes, edges } = get();
+        const { nodes, edges, customComponents } = get();
         if (nodes.length === 0) {
             set({
                 simulateError: 'Canvas is empty — drop some gates and inputs first.',
@@ -339,7 +445,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
         set({ simulating: true, simulateError: null });
 
-        const payload = buildPayload(nodes, edges);
+        const payload = buildPayload(nodes, edges, customComponents);
         const base = import.meta.env.VITE_API_BASE_URL || '';
         const url = `${base}/api/simulate`;
 
@@ -360,7 +466,7 @@ export const useAppStore = create<AppState>((set, get) => ({
                 return;
             }
 
-            // 1) Merge backend-computed values onto INPUT/GATE nodes.
+            // 1) Merge backend-computed values onto INPUT/GATE/CUSTOM nodes.
             // 2) Resolve OUTPUT nodes by tracing their incoming edge to its
             //    source node and looking up that node's value. OUTPUT lives
             //    on the frontend only, so we do this resolution here.
@@ -379,11 +485,32 @@ export const useAppStore = create<AppState>((set, get) => ({
                     if (sourceId === undefined) {
                         resolved = null;
                     } else {
-                        const sourceValue = result.values[sourceId];
-                        if (sourceValue === undefined) {
-                            resolved = null;
+                        // If the source is a CUSTOM node, resolve via its internal output node
+                        const sourceNode = nodes.find((n) => n.id === sourceId);
+                        if (sourceNode && sourceNode.type === 'CUSTOM') {
+                            const customData = sourceNode.data as CustomNodeData;
+                            const def = customComponents.find((c) => c.id === customData.componentId);
+                            if (def) {
+                                const incomingEdge = get().edges.find((e) => e.target === node.id);
+                                const prefix = `${sourceId}__`;
+                                const outIndex = parseInt(
+                                    (incomingEdge?.sourceHandle ?? 'out-0').replace('out-', ''),
+                                    10
+                                );
+                                const outNodeId = def.outputNodeIds[outIndex];
+                                const internalId = outNodeId ? `${prefix}${outNodeId}` : undefined;
+                                const sourceValue = internalId ? result.values[internalId] : undefined;
+                                resolved = sourceValue !== undefined ? sourceValue : null;
+                            } else {
+                                resolved = null;
+                            }
                         } else {
-                            resolved = sourceValue;
+                            const sourceValue = result.values[sourceId];
+                            if (sourceValue === undefined) {
+                                resolved = null;
+                            } else {
+                                resolved = sourceValue;
+                            }
                         }
                     }
                     return {
@@ -393,6 +520,25 @@ export const useAppStore = create<AppState>((set, get) => ({
                             output: resolved,
                         },
                     };
+                }
+
+                if (node.type === 'CUSTOM') {
+                    const data = node.data as CustomNodeData;
+                    const def = customComponents.find((c) => c.id === data.componentId);
+                    if (def) {
+                        const prefix = `${node.id}__`;
+                        const outputs: Record<string, boolean | null> = {};
+                        for (let i = 0; i < def.outputNodeIds.length; i++) {
+                            const internalId = `${prefix}${def.outputNodeIds[i]}`;
+                            const val = result.values[internalId];
+                            outputs[`out-${i}`] = val !== undefined ? val : null;
+                        }
+                        return {
+                            ...node,
+                            data: { ...data, outputs },
+                        };
+                    }
+                    return node;
                 }
 
                 const value = result.values[node.id];
@@ -409,10 +555,29 @@ export const useAppStore = create<AppState>((set, get) => ({
             });
 
             // 3) Re-style edges. An edge carries HIGH if its source node's
-            //    value is true. Apply red + thicker stroke; otherwise clear
+            //    value is true. Apply amber + thicker stroke; otherwise clear
             //    any previous style so LOW edges revert to default.
             const updatedEdges = get().edges.map((edge) => {
-                const sourceValue = result.values[edge.source];
+                let sourceId = edge.source;
+                // If source is CUSTOM, resolve to the actual internal output node
+                const sourceNode = nodes.find((n) => n.id === edge.source);
+                if (sourceNode && sourceNode.type === 'CUSTOM') {
+                    const customData = sourceNode.data as CustomNodeData;
+                    const def = customComponents.find((c) => c.id === customData.componentId);
+                    if (def) {
+                        const prefix = `${edge.source}__`;
+                        const outIndex = parseInt(
+                            (edge.sourceHandle ?? 'out-0').replace('out-', ''),
+                            10
+                        );
+                        const outNodeId = def.outputNodeIds[outIndex];
+                        if (outNodeId) {
+                            sourceId = `${prefix}${outNodeId}`;
+                        }
+                    }
+                }
+
+                const sourceValue = result.values[sourceId];
                 let isHigh: boolean;
                 if (sourceValue === true) {
                     isHigh = true;
@@ -453,6 +618,7 @@ export const useAppStore = create<AppState>((set, get) => ({
             });
         }
     },
+
     // Replaces the canvas with a previously saved circuit
     loadCircuit: (savedNodes, savedEdges) => {
         let maxId = 0;
@@ -472,5 +638,158 @@ export const useAppStore = create<AppState>((set, get) => ({
             simulateError: null,
             truthTable: null,
         });
+    },
+
+    // ----- Custom component actions (Phase 7) -----
+
+    setCustomComponents: (defs) => {
+        set({ customComponents: defs });
+    },
+
+    addCustomToCanvas: (def, position) => {
+        const id = `custom_${get().nextId}`;
+        const newNode: Node<CustomNodeData> = {
+            id,
+            type: 'CUSTOM',
+            position,
+            data: {
+                componentId: def.id,
+                name: def.name,
+                inputLabels: def.inputLabels,
+                outputLabels: def.outputLabels,
+                outputs: {},
+            },
+        };
+        set({
+            nodes: [...get().nodes, newNode],
+            nextId: get().nextId + 1,
+        });
+    },
+
+    // ----- Electrical canvas actions (Phase 8) -----
+
+    onElecNodesChange: (changes) => {
+        set({ elecNodes: applyNodeChanges(changes, get().elecNodes) });
+    },
+
+    onElecEdgesChange: (changes) => {
+        set({ elecEdges: applyEdgeChanges(changes, get().elecEdges) });
+    },
+
+    onElecConnect: (connection) => {
+        set({ elecEdges: addEdge(connection, get().elecEdges) });
+    },
+
+    addElecComponent: (compType, position) => {
+        const id = `elec_${get().elecNextId}`;
+        let nodeData: AnyNodeData;
+
+        if (compType === 'VOLTAGE_SOURCE') {
+            const count = get().elecNodes.filter((n) => n.type === 'VOLTAGE_SOURCE').length;
+            nodeData = {
+                label: `V${count + 1}`,
+                voltage: 5,
+                computedCurrent: null,
+            } as VoltageSourceNodeData;
+        } else if (compType === 'RESISTOR') {
+            const count = get().elecNodes.filter((n) => n.type === 'RESISTOR').length;
+            nodeData = {
+                label: `R${count + 1}`,
+                resistance: 100,
+                computedVoltage: null,
+                computedCurrent: null,
+            } as ResistorNodeData;
+        } else if (compType === 'LED') {
+            const count = get().elecNodes.filter((n) => n.type === 'LED').length;
+            nodeData = {
+                label: `LED${count + 1}`,
+                threshold: 0.01,
+                lit: null,
+                computedVoltage: null,
+                computedCurrent: null,
+            } as LEDNodeData;
+        } else {
+            // SWITCH
+            const count = get().elecNodes.filter((n) => n.type === 'SWITCH').length;
+            nodeData = {
+                label: `SW${count + 1}`,
+                closed: false,
+            } as SwitchNodeData;
+        }
+
+        const newNode: Node<AnyNodeData> = {
+            id,
+            type: compType,
+            position,
+            data: nodeData,
+        };
+
+        set({
+            elecNodes: [...get().elecNodes, newNode],
+            elecNextId: get().elecNextId + 1,
+        });
+    },
+
+    toggleSwitch: (id) => {
+        const updated = get().elecNodes.map((node) => {
+            if (node.id !== id) {
+                return node;
+            }
+            const data = node.data as SwitchNodeData;
+            return {
+                ...node,
+                data: { ...data, closed: !data.closed },
+            };
+        });
+        set({ elecNodes: updated });
+    },
+
+    clearElec: () => {
+        set({
+            elecNodes: [],
+            elecEdges: [],
+            elecNextId: 1,
+        });
+    },
+
+    applyElecResults: (values) => {
+        const updatedNodes = get().elecNodes.map((node) => {
+            const result = values[node.id];
+            if (!result) {
+                return node;
+            }
+            if (node.type === 'VOLTAGE_SOURCE') {
+                const data = node.data as VoltageSourceNodeData;
+                return {
+                    ...node,
+                    data: { ...data, computedCurrent: result.current },
+                };
+            }
+            if (node.type === 'RESISTOR') {
+                const data = node.data as ResistorNodeData;
+                return {
+                    ...node,
+                    data: {
+                        ...data,
+                        computedVoltage: result.voltage,
+                        computedCurrent: result.current,
+                    },
+                };
+            }
+            if (node.type === 'LED') {
+                const data = node.data as LEDNodeData;
+                return {
+                    ...node,
+                    data: {
+                        ...data,
+                        lit: result.lit ?? false,
+                        computedVoltage: result.voltage,
+                        computedCurrent: result.current,
+                    },
+                };
+            }
+            return node;
+        });
+        set({ elecNodes: updatedNodes });
     },
 }));

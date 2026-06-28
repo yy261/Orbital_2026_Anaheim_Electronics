@@ -8,6 +8,7 @@ import MyCircuits from './pages/MyCircuits';
 import Account from './pages/Account';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
+import Compare from './pages/Compare';
 
 export default function App() {
     return (
@@ -19,6 +20,7 @@ export default function App() {
                     <Route path="/learn" element={<Learn />} />
                     <Route path="/learn/:levelId" element={<LevelPlay />} />
                     <Route path="/build" element={<Build />} />
+                    <Route path="/compare" element={<Compare />} />
                     <Route path="/login" element={<Login />} />
                     <Route path="/signup" element={<Signup />} />
                     <Route
