@@ -116,7 +116,7 @@ function buildPayload(nodes: Node<AnyNodeData>[], edges: Edge[]): {
 // Styling for edges that the simulator marks as carrying HIGH. We apply
 // these inline on each edge so React Flow renders them with a thicker red
 // stroke without us needing a custom edge component.
-const HIGH_EDGE_STYLE = { stroke: '#dc2626', strokeWidth: 2.5 };
+const HIGH_EDGE_STYLE = { stroke: '#f09a3e', strokeWidth: 2.5 };
 
 export const useAppStore = create<AppState>((set, get) => ({
     nodes: [],
