@@ -4,32 +4,7 @@ import ElectricalPalette from '../components/canvas/ElectricalPalette';
 import ElectricalCanvas from '../components/canvas/ElectricalCanvas';
 import GatePalette from '../components/canvas/GatePalette';
 import LogicCanvas from '../components/canvas/LogicCanvas';
-
-// Predefined comparison scenarios shown in the selector bar.
-// Each scenario is just a label and description — the user builds freely;
-// the scenario just sets expectations for what to try.
-const SCENARIOS = [
-    {
-        id: 'free',
-        name: 'Free Build',
-        description: 'Build any circuit on either side.',
-    },
-    {
-        id: 'switch_led',
-        name: 'Switch → LED',
-        description: 'One switch controls an LED. Equivalent to a buffer / single input.',
-    },
-    {
-        id: 'series',
-        name: 'Two Switches in Series',
-        description: 'Both switches must be closed for current to flow. Equivalent to AND.',
-    },
-    {
-        id: 'parallel',
-        name: 'Two Switches in Parallel',
-        description: 'Either switch lights the LED. Equivalent to OR.',
-    },
-];
+import { SCENARIOS } from '../data/compareScenarios';
 
 export default function Compare() {
     const [activeScenario, setActiveScenario] = useState('free');
@@ -37,6 +12,8 @@ export default function Compare() {
     const simulate = useAppStore((s) => s.simulate);
     const simulating = useAppStore((s) => s.simulating);
     const simulateError = useAppStore((s) => s.simulateError);
+    const loadCircuit = useAppStore((s) => s.loadCircuit);
+    const loadElecCircuit = useAppStore((s) => s.loadElecCircuit);
 
     const elecNodes = useAppStore((s) => s.elecNodes);
     const elecEdges = useAppStore((s) => s.elecEdges);
@@ -44,6 +21,26 @@ export default function Compare() {
 
     const [elecSimulating, setElecSimulating] = useState(false);
     const [elecError, setElecError] = useState<string | null>(null);
+
+    // Selecting a preset loads the matching electrical circuit on the left and
+    // its logic-gate equivalent on the right. 'free' leaves both canvases as-is
+    // so the user can build their own.
+    function handleScenarioChange(scenarioId: string) {
+        setActiveScenario(scenarioId);
+        setElecError(null);
+
+        const scenario = SCENARIOS.find((s) => s.id === scenarioId);
+        if (scenario === undefined) {
+            return;
+        }
+        if (scenario.build === null) {
+            return;
+        }
+
+        const built = scenario.build();
+        loadElecCircuit(built.elecNodes, built.elecEdges);
+        loadCircuit(built.logicNodes, built.logicEdges);
+    }
 
     async function handleSimulateBoth() {
         // Kick off the logic simulation (existing store action)
@@ -129,7 +126,7 @@ export default function Compare() {
 
                 <select
                     value={activeScenario}
-                    onChange={(e) => setActiveScenario(e.target.value)}
+                    onChange={(e) => handleScenarioChange(e.target.value)}
                     className="rounded-md border border-line bg-paper px-2 py-1 font-mono text-xs text-ink outline-none focus:border-accent"
                 >
                     {SCENARIOS.map((s) => (

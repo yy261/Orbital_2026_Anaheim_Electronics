@@ -6,7 +6,6 @@ import {
     doc,
     query,
     where,
-    orderBy,
     serverTimestamp,
 } from 'firebase/firestore';
 import { db } from './config';
@@ -42,37 +41,53 @@ export async function saveCustomComponent(
     return docRef.id;
 }
 
-// Fetches all custom components belonging to a user, sorted newest first
+// Fetches all custom components belonging to a user, sorted newest first.
+//
+// As with getUserCircuits, the query filters on ownerId only and sorts in
+// memory. Combining where('ownerId') with orderBy('createdAt') would demand a
+// Firestore composite index; without it the fetch throws and (because the
+// caller previously swallowed the error) the components silently never load.
 export async function getUserCustomComponents(userId: string): Promise<CustomComponentDef[]> {
     if (db === undefined) {
         throw new Error('Firestore is not initialised. Check your .env file.');
     }
 
-    const q = query(
-        collection(db, 'customComponents'),
-        where('ownerId', '==', userId),
-        orderBy('createdAt', 'desc')
-    );
+    const q = query(collection(db, 'customComponents'), where('ownerId', '==', userId));
 
     const snapshot = await getDocs(q);
-    const components: CustomComponentDef[] = [];
+
+    type Entry = { def: CustomComponentDef; createdAtMillis: number };
+    const entries: Entry[] = [];
 
     for (const docSnap of snapshot.docs) {
         const d = docSnap.data();
-        components.push({
-            id: docSnap.id,
-            ownerId: d.ownerId ?? '',
-            name: d.name ?? 'Unnamed',
-            inputLabels: d.inputLabels ?? [],
-            outputLabels: d.outputLabels ?? [],
-            internalNodes: d.internalNodes ?? [],
-            internalEdges: d.internalEdges ?? [],
-            inputNodeIds: d.inputNodeIds ?? [],
-            outputNodeIds: d.outputNodeIds ?? [],
+        let createdAtMillis: number;
+        const asMillis = d.createdAt?.toMillis?.();
+        if (typeof asMillis === 'number') {
+            createdAtMillis = asMillis;
+        } else {
+            createdAtMillis = 0;
+        }
+        entries.push({
+            createdAtMillis: createdAtMillis,
+            def: {
+                id: docSnap.id,
+                ownerId: d.ownerId ?? '',
+                name: d.name ?? 'Unnamed',
+                inputLabels: d.inputLabels ?? [],
+                outputLabels: d.outputLabels ?? [],
+                internalNodes: d.internalNodes ?? [],
+                internalEdges: d.internalEdges ?? [],
+                inputNodeIds: d.inputNodeIds ?? [],
+                outputNodeIds: d.outputNodeIds ?? [],
+            },
         });
     }
 
-    return components;
+    // Newest first.
+    entries.sort((a, b) => b.createdAtMillis - a.createdAtMillis);
+
+    return entries.map((e) => e.def);
 }
 
 // Removes a custom component from Firestore

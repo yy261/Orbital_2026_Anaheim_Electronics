@@ -8,6 +8,7 @@ import LogicCanvas from '../components/canvas/LogicCanvas';
 import ElectricalPalette from '../components/canvas/ElectricalPalette';
 import ElectricalCanvas from '../components/canvas/ElectricalCanvas';
 import TruthTableView from '../components/canvas/TruthTable';
+import ElectricalProperties from '../components/canvas/ElectricalProperties';
 import SaveModal from '../components/SaveModal';
 import CustomComponentModal from '../components/CustomComponentModal';
 import type { GateNodeData, InputNodeData, SimulatePayloadEdge, SimulatePayloadNode } from '../types/circuit';
@@ -30,6 +31,8 @@ export default function Build() {
     const elecEdges = useAppStore((s) => s.elecEdges);
     const clearElec = useAppStore((s) => s.clearElec);
     const applyElecResults = useAppStore((s) => s.applyElecResults);
+    const pendingBuildMode = useAppStore((s) => s.pendingBuildMode);
+    const setPendingBuildMode = useAppStore((s) => s.setPendingBuildMode);
 
     const { user } = useAuth();
 
@@ -41,6 +44,15 @@ export default function Build() {
     const [elecSimulating, setElecSimulating] = useState<boolean>(false);
     const [elecError, setElecError] = useState<string | null>(null);
 
+    // When arriving from My Circuits (or a preset), switch to the canvas that
+    // matches the loaded circuit, then clear the pending flag.
+    useEffect(() => {
+        if (pendingBuildMode !== null) {
+            setBuildMode(pendingBuildMode);
+            setPendingBuildMode(null);
+        }
+    }, [pendingBuildMode, setPendingBuildMode]);
+
     // Load custom components on mount (requires login)
     useEffect(() => {
         if (user === null) {
@@ -51,8 +63,10 @@ export default function Build() {
                 const timer = setTimeout(() => setCustomComponents(defs), 0);
                 return () => clearTimeout(timer);
             })
-            .catch(() => {
-                // Custom components are optional — silently ignore load errors
+            .catch((err) => {
+                // Log rather than swallow — a silent failure here made saved
+                // custom components appear to "not work" at all.
+                console.error('Failed to load custom components:', err);
             });
     }, [user, setCustomComponents]);
 
@@ -122,9 +136,9 @@ export default function Build() {
         setSaving(true);
         try {
             if (buildMode === 'logic') {
-                await saveCircuit(user.uid, name, nodes, edges);
+                await saveCircuit(user.uid, name, 'logic', nodes, edges);
             } else {
-                await saveCircuit(user.uid, name, elecNodes, elecEdges);
+                await saveCircuit(user.uid, name, 'electrical', elecNodes, elecEdges);
             }
             setSaveMessage(`"${name}" saved.`);
             setShowSaveModal(false);
@@ -417,14 +431,8 @@ export default function Build() {
                             <ElectricalCanvas />
                         </div>
                         <div className="flex w-72 flex-col border-l border-line bg-paper">
-                            <div className="flex-1 overflow-auto p-4">
-                                <div className="gf-label mb-2">Electrical Mode</div>
-                                <div className="font-mono text-xs text-muted leading-relaxed">
-                                    Drop a voltage source, resistors, LEDs and switches.
-                                    Wire them terminal_b → terminal_a to form a loop.
-                                    Click SW nodes to open/close the switch.
-                                    Press Simulate to compute current and voltage.
-                                </div>
+                            <div className="flex-1 overflow-auto">
+                                <ElectricalProperties />
                             </div>
                             <div className="border-t border-line px-4 py-2 text-[10px] text-muted">
                                 Canvas powered by React Flow

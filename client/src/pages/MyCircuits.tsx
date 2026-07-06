@@ -7,6 +7,8 @@ import { getUserCircuits, deleteCircuit, type SavedCircuit } from '../firebase/f
 export default function MyCircuits() {
     const { user, loading: authLoading } = useAuth();
     const loadCircuit = useAppStore((s) => s.loadCircuit);
+    const loadElecCircuit = useAppStore((s) => s.loadElecCircuit);
+    const setPendingBuildMode = useAppStore((s) => s.setPendingBuildMode);
     const navigate = useNavigate();
 
     const [circuits, setCircuits] = useState<SavedCircuit[]>([]);
@@ -37,9 +39,17 @@ export default function MyCircuits() {
         fetchCircuits();
     }, [user, authLoading]);
 
-    // Loads a saved circuit onto the Build canvas and navigates there
+    // Loads a saved circuit onto the correct Build canvas and navigates there.
+    // Electrical circuits go to the electrical canvas; the pending-mode flag
+    // tells the Build page to open in the matching mode.
     function handleLoad(circuit: SavedCircuit) {
-        loadCircuit(circuit.data.nodes, circuit.data.edges);
+        if (circuit.type === 'electrical') {
+            loadElecCircuit(circuit.data.nodes, circuit.data.edges);
+            setPendingBuildMode('electrical');
+        } else {
+            loadCircuit(circuit.data.nodes, circuit.data.edges);
+            setPendingBuildMode('logic');
+        }
         navigate('/build');
     }
 
@@ -139,7 +149,7 @@ export default function MyCircuits() {
                                     {circuit.name}
                                 </div>
                                 <div className="mt-1 font-mono text-[10px] uppercase tracking-wider text-muted">
-                                    {formatDate(circuit.createdAt)} · {circuit.data.nodes.length} nodes
+                                    {circuit.type} · {formatDate(circuit.createdAt)} · {circuit.data.nodes.length} nodes
                                 </div>
                             </div>
                             <div className="flex gap-2">

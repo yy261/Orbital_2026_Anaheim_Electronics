@@ -78,6 +78,13 @@ type AppState = {
     clear: () => void;
     simulate: () => Promise<void>;
     loadCircuit: (nodes: Node<AnyNodeData>[], edges: Edge[]) => void;
+    loadElecCircuit: (nodes: Node<AnyNodeData>[], edges: Edge[]) => void;
+
+    // When a saved circuit is loaded from another page (e.g. My Circuits),
+    // this records which canvas it belongs to so the Build page can switch to
+    // the matching mode on arrival. null means "no pending switch".
+    pendingBuildMode: 'logic' | 'electrical' | null;
+    setPendingBuildMode: (mode: 'logic' | 'electrical' | null) => void;
 
     // ----- Custom components (Phase 7) -----
     customComponents: CustomComponentDef[];
@@ -95,6 +102,7 @@ type AppState = {
 
     addElecComponent: (type: ElectricalComponentType, position: { x: number; y: number }) => void;
     toggleSwitch: (id: string) => void;
+    updateElecNodeData: (id: string, patch: Record<string, unknown>) => void;
     clearElec: () => void;
     applyElecResults: (values: Record<string, { voltage: number; current: number; lit?: boolean }>) => void;
 };
@@ -223,6 +231,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     simulateError: null,
     truthTable: null,
     clipboard: null,
+    pendingBuildMode: null,
 
     // ----- Custom components -----
     customComponents: [],
@@ -640,6 +649,29 @@ export const useAppStore = create<AppState>((set, get) => ({
         });
     },
 
+    // Replaces the electrical canvas with a previously saved / preset circuit
+    loadElecCircuit: (savedNodes, savedEdges) => {
+        let maxId = 0;
+        for (const node of savedNodes) {
+            const match = node.id.match(/_(\d+)$/);
+            if (match !== null) {
+                const num = parseInt(match[1], 10);
+                if (num > maxId) {
+                    maxId = num;
+                }
+            }
+        }
+        set({
+            elecNodes: savedNodes,
+            elecEdges: savedEdges,
+            elecNextId: maxId + 1,
+        });
+    },
+
+    setPendingBuildMode: (mode) => {
+        set({ pendingBuildMode: mode });
+    },
+
     // ----- Custom component actions (Phase 7) -----
 
     setCustomComponents: (defs) => {
@@ -739,6 +771,22 @@ export const useAppStore = create<AppState>((set, get) => ({
             return {
                 ...node,
                 data: { ...data, closed: !data.closed },
+            };
+        });
+        set({ elecNodes: updated });
+    },
+
+    // Merges a partial patch into an electrical node's data. Used by the
+    // properties panel to edit voltage / resistance / threshold so component
+    // values are no longer fixed at their defaults.
+    updateElecNodeData: (id, patch) => {
+        const updated = get().elecNodes.map((node) => {
+            if (node.id !== id) {
+                return node;
+            }
+            return {
+                ...node,
+                data: { ...node.data, ...patch },
             };
         });
         set({ elecNodes: updated });

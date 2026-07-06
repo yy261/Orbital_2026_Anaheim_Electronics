@@ -329,22 +329,12 @@ export function simulateElectrical(req: ElectricalSimRequest): ElectricalSimResp
         return { ok: true, values };
     }
 
-    // Open switch check — if any switch is open, no current flows
-    const hasOpenSwitch = nonSource.some(
-        (e) => e.type === 'SWITCH' && e.resistance === Infinity
-    );
-
-    if (hasOpenSwitch) {
-        values[source.id] = { voltage: totalVoltage, current: 0 };
-        for (const elem of nonSource) {
-            if (elem.type === 'LED') {
-                values[elem.id] = { voltage: 0, current: 0, lit: false };
-            } else {
-                values[elem.id] = { voltage: 0, current: 0 };
-            }
-        }
-        return { ok: true, values };
-    }
+    // An open switch is modelled as infinite resistance and handled by the
+    // reducer below, NOT by a global "any switch open → no current" shortcut.
+    // That shortcut was incorrect for parallel circuits: an open switch in one
+    // branch must not stop current through a closed branch beside it (this is
+    // the OR case). In a pure series path an open switch makes the equivalent
+    // resistance infinite, which is caught by the eqR === Infinity check.
 
     // Reduce to equivalent resistance
     const eqR = reduceToEquivalent(nonSource, source.junctionA, source.junctionB);
