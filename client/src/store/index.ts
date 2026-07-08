@@ -110,7 +110,8 @@ type AppState = {
 // Helper: serialises the canvas into the API payload. OUTPUT nodes are
 // frontend-only so they're skipped here — the backend never sees them.
 // CUSTOM nodes are expanded into their internal graphs inline.
-function buildPayload(
+// Exported for unit testing.
+export function buildPayload(
     nodes: Node<AnyNodeData>[],
     edges: Edge[],
     customComponents: CustomComponentDef[]
