@@ -4,12 +4,13 @@ import ProtectedRoute from './components/ProtectedRoute';
 import Build from './pages/Build';
 import Learn from './pages/Learn';
 import LevelPlay from './pages/LevelPlay';
+
 import MyCircuits from './pages/MyCircuits';
 import Account from './pages/Account';
 import Login from './pages/Login';
 import Signup from './pages/Signup';
 import Compare from './pages/Compare';
-
+import ElectricalLevelPlay from './pages/ElectricalLevelPlay';
 export default function App() {
     return (
         <div className="flex h-screen flex-col text-ink">
@@ -18,6 +19,7 @@ export default function App() {
                 <Routes>
                     <Route path="/" element={<Navigate to="/learn" replace />} />
                     <Route path="/learn" element={<Learn />} />
+                    <Route path="/learn/electrical/:levelId" element={<ElectricalLevelPlay />} />
                     <Route path="/learn/:levelId" element={<LevelPlay />} />
                     <Route path="/build" element={<Build />} />
                     <Route path="/compare" element={<Compare />} />

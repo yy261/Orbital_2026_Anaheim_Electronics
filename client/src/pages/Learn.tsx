@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../hooks/useAuth';
 import { getUserProgress } from '../firebase/firestore';
 import { LEVELS } from '../data/levels';
+import { ELECTRICAL_LEVELS } from '../data/electricalLevels';
 
 export default function Learn() {
     const { user, loading: authLoading } = useAuth();
@@ -63,6 +64,15 @@ export default function Learn() {
         return completedLevels.includes(levelId);
     }
 
+    // Electrical levels have their own independent unlock chain.
+    function isElecUnlocked(index: number): boolean {
+        if (index === 0) {
+            return true;
+        }
+        const previousId = ELECTRICAL_LEVELS[index - 1].id;
+        return completedLevels.includes(previousId);
+    }
+
     let statusDotClass = 'bg-muted';
     let statusText = 'checking…';
     let statusTextClass = 'text-muted';
@@ -86,7 +96,8 @@ export default function Learn() {
     }
 
     return (
-        <div className="mx-auto max-w-3xl space-y-6 overflow-auto p-8">
+        <div className="h-full overflow-y-auto">
+            <div className="mx-auto max-w-3xl space-y-6 p-8">
             <header>
                 <div className="gf-label mb-2">GF-01 // Module Index</div>
                 <h1 className="font-display text-3xl font-bold tracking-tight">Learn</h1>
@@ -130,9 +141,9 @@ export default function Learn() {
                 </div>
             )}
 
-            {/* Level list */}
+            {/* Logic level list */}
             <section className="space-y-3">
-                <div className="gf-label">Levels</div>
+                <div className="gf-label">Logic Levels</div>
                 {LEVELS.map((level, index) => {
                     const unlocked = isUnlocked(index);
                     const completed = isCompleted(level.id);
@@ -187,6 +198,65 @@ export default function Learn() {
                     );
                 })}
             </section>
+
+            {/* Electrical level list */}
+            <section className="space-y-3">
+                <div className="gf-label">Electrical Levels</div>
+                {ELECTRICAL_LEVELS.map((level, index) => {
+                    const unlocked = isElecUnlocked(index);
+                    const completed = isCompleted(level.id);
+
+                    let statusLabel: string;
+                    let statusClass: string;
+                    if (completed === true) {
+                        statusLabel = '✓ Complete';
+                        statusClass = 'text-scope';
+                    } else if (unlocked === true) {
+                        statusLabel = 'Unlocked';
+                        statusClass = 'text-accent';
+                    } else {
+                        statusLabel = 'Locked';
+                        statusClass = 'text-muted';
+                    }
+
+                    let cardClass: string;
+                    if (unlocked === true) {
+                        cardClass = 'gf-panel cursor-pointer hover:border-accent transition-colors';
+                    } else {
+                        cardClass = 'gf-panel opacity-50';
+                    }
+
+                    function handleClick() {
+                        if (unlocked === true) {
+                            navigate(`/learn/electrical/${level.id}`);
+                        }
+                    }
+
+                    return (
+                        <div
+                            key={level.id}
+                            onClick={handleClick}
+                            className={`flex items-center justify-between p-4 ${cardClass}`}
+                        >
+                            <div>
+                                <div className="flex items-center gap-2">
+                                    <span className="font-mono text-xs text-muted">
+                                        {String(index + 1).padStart(2, '0')}
+                                    </span>
+                                    <span className="font-display text-sm font-bold text-ink">
+                                        {level.title}
+                                    </span>
+                                </div>
+                                <p className="mt-1 text-xs text-muted">{level.description}</p>
+                            </div>
+                            <span className={`font-mono text-xs ${statusClass}`}>
+                                {statusLabel}
+                            </span>
+                        </div>
+                    );
+                })}
+            </section>
+            </div>
         </div>
     );
 }
