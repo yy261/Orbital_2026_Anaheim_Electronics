@@ -1,10 +1,11 @@
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useAppStore } from '../store';
 import ElectricalPalette from '../components/canvas/ElectricalPalette';
 import ElectricalCanvas from '../components/canvas/ElectricalCanvas';
 import GatePalette from '../components/canvas/GatePalette';
 import LogicCanvas from '../components/canvas/LogicCanvas';
 import { SCENARIOS } from '../data/compareScenarios';
+import { deriveLogicFromElectrical } from '../lib/deriveLogic';
 
 export default function Compare() {
     const [activeScenario, setActiveScenario] = useState('free');
@@ -22,9 +23,51 @@ export default function Compare() {
     const [elecSimulating, setElecSimulating] = useState(false);
     const [elecError, setElecError] = useState<string | null>(null);
 
-    // Selecting a preset loads the matching electrical circuit on the left and
-    // its logic-gate equivalent on the right. 'free' leaves both canvases as-is
-    // so the user can build their own.
+    // Live electrical → logic derivation. Whenever the switch network on the
+    // electrical canvas changes (topology or switch states), regenerate the
+    // equivalent logic-gate circuit on the other canvas. A structure key avoids
+    // re-deriving on pure position drags.
+    const [expression, setExpression] = useState<string | null>(null);
+    const [deriveReason, setDeriveReason] = useState<string | null>(null);
+
+    const structureKey = useMemo(() => {
+        const types = elecNodes.map((n) => `${n.id}:${n.type}`).join(',');
+        const swstate = elecNodes
+            .filter((n) => n.type === 'SWITCH')
+            .map((n) => `${n.id}:${(n.data as { closed?: boolean }).closed === true}`)
+            .join(',');
+        const wires = elecEdges
+            .map((e) => `${e.source}.${e.sourceHandle ?? ''}->${e.target}.${e.targetHandle ?? ''}`)
+            .join(',');
+        return `${types}|${swstate}|${wires}`;
+    }, [elecNodes, elecEdges]);
+
+    useEffect(() => {
+        const result = deriveLogicFromElectrical(elecNodes, elecEdges);
+        if (result.ok === true) {
+            loadCircuit(result.nodes, result.edges);
+        } else {
+            loadCircuit([], []);
+        }
+        // Defer the React state updates to avoid the "setState synchronously
+        // within an effect" warning (the project's established pattern).
+        const timer = setTimeout(() => {
+            if (result.ok === true) {
+                setExpression(result.expression);
+                setDeriveReason(null);
+            } else {
+                setExpression(null);
+                setDeriveReason(result.reason);
+            }
+        }, 0);
+        return () => clearTimeout(timer);
+        // Re-run only when the electrical structure changes.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [structureKey]);
+
+    // Selecting a preset loads the matching electrical circuit. The logic-gate
+    // equivalent on the other canvas is then derived automatically by the effect
+    // above. 'free' leaves the electrical canvas as-is so the user can build.
     function handleScenarioChange(scenarioId: string) {
         setActiveScenario(scenarioId);
         setElecError(null);
@@ -39,7 +82,6 @@ export default function Compare() {
 
         const built = scenario.build();
         loadElecCircuit(built.elecNodes, built.elecEdges);
-        loadCircuit(built.logicNodes, built.logicEdges);
     }
 
     async function handleSimulateBoth() {
@@ -179,15 +221,27 @@ export default function Compare() {
                     </div>
                 </div>
 
-                {/* Right: logic gate equivalent */}
+                {/* Right: logic gate equivalent (auto-derived from the switches) */}
                 <div className="flex flex-1">
                     <GatePalette />
                     <div className="relative flex-1">
-                        <div className="absolute left-2 top-2 z-10">
+                        <div className="absolute left-2 top-2 z-10 flex items-center gap-2">
                             <span className="rounded bg-paper px-2 py-1 font-mono text-[10px] uppercase tracking-[0.14em] text-muted ring-1 ring-line">
-                                Logic Gate Equivalent
+                                Logic Gate Equivalent · auto-derived
                             </span>
+                            {expression !== null && (
+                                <span className="rounded bg-paper px-2 py-1 font-mono text-[11px] text-accent ring-1 ring-line">
+                                    Y = {expression}
+                                </span>
+                            )}
                         </div>
+                        {deriveReason !== null && (
+                            <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center p-6">
+                                <div className="max-w-xs rounded-md bg-paper/95 p-4 text-center text-xs text-muted ring-1 ring-line">
+                                    {deriveReason}
+                                </div>
+                            </div>
+                        )}
                         <LogicCanvas />
                     </div>
                 </div>
