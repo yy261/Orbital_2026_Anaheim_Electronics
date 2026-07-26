@@ -73,19 +73,16 @@ describe('deriveLogicFromElectrical', () => {
         }
     });
 
-    it('reports a reason when there are no switches', () => {
+    it('does not crash when a switch and source are placed but not connected (regression)', () => {
         const nodes = [
             { id: 'V', type: 'VOLTAGE_SOURCE', position: { x: 0, y: 0 }, data: { label: 'V1', voltage: 5 } },
-            { id: 'D', type: 'LED', position: { x: 0, y: 0 }, data: { label: 'LED1', threshold: 0.01 } },
+            { id: 'SW', type: 'SWITCH', position: { x: 0, y: 0 }, data: { label: 'SW1', closed: false } },
         ] as never[];
-        const edges = [
-            { id: 'e1', source: 'V', sourceHandle: 'terminal_b', target: 'D', targetHandle: 'terminal_a' },
-            { id: 'e2', source: 'D', sourceHandle: 'terminal_b', target: 'V', targetHandle: 'terminal_a' },
-        ] as never[];
-        const r = deriveLogicFromElectrical(nodes, edges);
+        // No edges — nothing is wired together.
+        const r = deriveLogicFromElectrical(nodes, [] as never[]);
         expect(r.ok).toBe(false);
         if (r.ok === false) {
-            expect(r.reason).toMatch(/switch/i);
+            expect(r.reason.length).toBeGreaterThan(0);
         }
     });
 });

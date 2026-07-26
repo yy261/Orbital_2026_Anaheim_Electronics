@@ -3,6 +3,7 @@ import type { DragEvent } from 'react';
 import ReactFlow, {
     Background,
     BackgroundVariant,
+    ConnectionLineType,
     Controls,
     MiniMap,
     ReactFlowProvider,
@@ -20,6 +21,7 @@ import {
     LEDNode,
     SwitchNode,
 } from './nodes/ElectricalNodes';
+import ElectricalWire from './ElectricalWire';
 
 const nodeTypes = {
     VOLTAGE_SOURCE: VoltageSourceNode,
@@ -28,8 +30,15 @@ const nodeTypes = {
     SWITCH: SwitchNode,
 };
 
+// Custom edge that spreads parallel wires into lanes and routes return wires
+// (e.g. back to the voltage source) around the bottom instead of straight
+// across the middle of the circuit — see ElectricalWire.tsx.
+const edgeTypes = {
+    electrical: ElectricalWire,
+};
+
 const defaultEdgeOptions: DefaultEdgeOptions = {
-    type: 'smoothstep',
+    type: 'electrical',
 };
 
 function Inner() {
@@ -73,6 +82,7 @@ function Inner() {
     );
 
     const nodeTypesMemo = useMemo(() => nodeTypes, []);
+    const edgeTypesMemo = useMemo(() => edgeTypes, []);
 
     return (
         <div ref={wrapperRef} className="h-full w-full">
@@ -86,7 +96,11 @@ function Inner() {
                 onDragOver={onDragOver}
                 onInit={(inst) => (rfInstance.current = inst)}
                 nodeTypes={nodeTypesMemo}
+                edgeTypes={edgeTypesMemo}
                 defaultEdgeOptions={defaultEdgeOptions}
+                connectionLineType={ConnectionLineType.SmoothStep}
+                snapToGrid
+                snapGrid={[16, 16]}
                 fitView
                 deleteKeyCode={['Backspace', 'Delete']}
                 proOptions={{ hideAttribution: true }}

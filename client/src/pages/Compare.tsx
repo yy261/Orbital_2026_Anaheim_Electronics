@@ -43,7 +43,14 @@ export default function Compare() {
     }, [elecNodes, elecEdges]);
 
     useEffect(() => {
-        const result = deriveLogicFromElectrical(elecNodes, elecEdges);
+        let result: ReturnType<typeof deriveLogicFromElectrical>;
+        try {
+            result = deriveLogicFromElectrical(elecNodes, elecEdges);
+        } catch (err) {
+            // Defensive: a derivation bug must never blank the whole page.
+            console.error('Logic derivation failed:', err);
+            result = { ok: false, reason: 'Could not derive a logic equivalent for this circuit.' };
+        }
         if (result.ok === true) {
             loadCircuit(result.nodes, result.edges);
         } else {

@@ -19,20 +19,20 @@
 
 import type { Edge, Node } from 'reactflow';
 import type { AnyNodeData } from '../types/circuit';
-
+ 
 type Expr =
     | { kind: 'var'; label: string; closed: boolean }
     | { kind: 'and'; left: Expr; right: Expr }
     | { kind: 'or'; left: Expr; right: Expr };
-
+ 
 type SwitchEdge = { u: string; v: string; expr: Expr };
-
+ 
 export type DeriveResult =
     | { ok: true; nodes: Node<AnyNodeData>[]; edges: Edge[]; expression: string }
     | { ok: false; reason: string };
-
+ 
 type ElecNode = Node<AnyNodeData>;
-
+ 
 // ----- Union-Find over terminal endpoints -----
 function makeUF() {
     const parent = new Map<string, string>();
@@ -63,14 +63,14 @@ function makeUF() {
     }
     return { find, union };
 }
-
+ 
 function pairKey(a: string, b: string): string {
     if (a < b) {
         return a + '##' + b;
     }
     return b + '##' + a;
 }
-
+ 
 function exprToString(e: Expr): string {
     if (e.kind === 'var') {
         return e.label;
@@ -80,7 +80,7 @@ function exprToString(e: Expr): string {
     }
     return '(' + exprToString(e.left) + ' + ' + exprToString(e.right) + ')';
 }
-
+ 
 export function deriveLogicFromElectrical(
     elecNodes: ElecNode[],
     elecEdges: Edge[]
@@ -96,7 +96,7 @@ export function deriveLogicFromElectrical(
             reason: 'Add switches to see the logic equivalent — switches in series map to AND, in parallel to OR.',
         };
     }
-
+ 
     const uf = makeUF();
     for (const n of elecNodes) {
         uf.find(`${n.id}:terminal_a`);
@@ -119,13 +119,13 @@ export function deriveLogicFromElectrical(
             uf.union(`${n.id}:terminal_a`, `${n.id}:terminal_b`);
         }
     }
-
+ 
     const T1 = uf.find(`${source.id}:terminal_a`);
     const T2 = uf.find(`${source.id}:terminal_b`);
     if (T1 === T2) {
         return { ok: false, reason: 'The source terminals are connected together — check your wiring.' };
     }
-
+ 
     let edges: SwitchEdge[] = [];
     for (const sw of switches) {
         const u = uf.find(`${sw.id}:terminal_a`);
@@ -143,26 +143,26 @@ export function deriveLogicFromElectrical(
     if (edges.length === 0) {
         return { ok: false, reason: 'The switches are not wired into the circuit between the source terminals.' };
     }
-
+ 
     // Series/parallel reduction to a single edge between T1 and T2.
     function isBetweenTerminals(e: SwitchEdge): boolean {
         return (e.u === T1 && e.v === T2) || (e.u === T2 && e.v === T1);
     }
-
+ 
     let guard = 0;
     while (edges.length > 1 || (edges.length === 1 && isBetweenTerminals(edges[0]) === false)) {
         guard = guard + 1;
         if (guard > 500) {
             return { ok: false, reason: 'Could not reduce this switch network.' };
         }
-
+ 
         // 1. Drop self-loops.
         const beforeSelf = edges.length;
         edges = edges.filter((e) => e.u !== e.v);
         if (edges.length !== beforeSelf) {
             continue;
         }
-
+ 
         // 2. Prune dead-end switches (a non-terminal junction touched by one edge).
         const degree = new Map<string, number>();
         for (const e of edges) {
@@ -182,7 +182,7 @@ export function deriveLogicFromElectrical(
         if (prunedDeadEnd) {
             continue;
         }
-
+ 
         // 3. Parallel merge (two edges between the same pair of junctions).
         let merged = false;
         for (let i = 0; i < edges.length && merged === false; i++) {
@@ -205,7 +205,7 @@ export function deriveLogicFromElectrical(
         if (merged) {
             continue;
         }
-
+ 
         // 4. Series merge (a non-terminal junction of degree exactly 2).
         const deg2 = new Map<string, number>();
         for (const e of edges) {
@@ -248,17 +248,24 @@ export function deriveLogicFromElectrical(
         if (didSeries) {
             continue;
         }
-
+ 
         return {
             ok: false,
             reason: 'This switch network is not a simple series/parallel arrangement, so it has no direct AND/OR equivalent.',
         };
     }
-
+ 
+    if (edges.length === 0) {
+        return {
+            ok: false,
+            reason: 'The switches are not wired into the circuit between the source terminals.',
+        };
+    }
+ 
     const rootExpr = edges[0].expr;
     return buildCircuit(rootExpr);
 }
-
+ 
 // Converts a boolean expression into INPUT/GATE/OUTPUT nodes with a tidy layout.
 function buildCircuit(rootExpr: Expr): DeriveResult {
     const nodes: Node<AnyNodeData>[] = [];
@@ -268,7 +275,7 @@ function buildCircuit(rootExpr: Expr): DeriveResult {
     let inputCount = 0;
     let gateCount = 0;
     let edgeCount = 0;
-
+ 
     function build(expr: Expr): string {
         if (expr.kind === 'var') {
             const existing = inputIdByLabel.get(expr.label);
@@ -309,7 +316,7 @@ function buildCircuit(rootExpr: Expr): DeriveResult {
         edgeCount = edgeCount + 1;
         return id;
     }
-
+ 
     const rootId = build(rootExpr);
     const outId = 'd_out';
     const outCol = 1 + (column.get(rootId) ?? 0);
@@ -321,7 +328,7 @@ function buildCircuit(rootExpr: Expr): DeriveResult {
         data: { label: 'Y', output: null } as unknown as AnyNodeData,
     });
     edges.push({ id: `de_${edgeCount}`, source: rootId, target: outId });
-
+ 
     // ----- Layout: inputs stacked on the left, columns flow right -----
     const inputNodes = nodes.filter((n) => n.type === 'INPUT');
     inputNodes.forEach((n, i) => {
@@ -347,6 +354,7 @@ function buildCircuit(rootExpr: Expr): DeriveResult {
         }
         n.position = { x: 40 + (column.get(n.id) ?? 1) * 170, y };
     }
-
+ 
     return { ok: true, nodes, edges, expression: exprToString(rootExpr) };
 }
+ 

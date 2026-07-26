@@ -68,7 +68,7 @@ function elecEdge(id: string, source: string, target: string): Edge {
         sourceHandle: 'terminal_b',
         target,
         targetHandle: 'terminal_a',
-        type: 'smoothstep',
+        type: 'electrical',
     };
 }
 
